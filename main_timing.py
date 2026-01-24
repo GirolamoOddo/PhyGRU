@@ -1,5 +1,5 @@
 # ============================================================
-# FAIR INFERENCE-TIME BENCHMARK
+# INFERENCE-TIME BENCHMARK
 # Structured table output
 # GRU (manual, torch-matched), PhyGRU, PhyGRU_rg
 # ============================================================
@@ -277,3 +277,4 @@ for r in rows:
     print(f"{r[0]:<10} {r[1]:<15d} {r[2]:<8d} {r[3]:<12.4f} {r[4]:<10.4f}")
 
 print("\nDone.")
+
