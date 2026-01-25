@@ -1,6 +1,6 @@
 # ============================================================
-# PhyGRU (with bias flag) + Minimal training / save / reload / inference example
-# Single file, minimal and runnable as a user guide
+# PhyGRU: Minimal training / save / reload / inference example
+# Runnable as a user guide
 # ============================================================
 
 from typing import Optional, Callable, Union, Tuple
@@ -370,3 +370,4 @@ if __name__ == "__main__":
     print("Test true shape:", test_y_true.shape)
     print("First-sample first-timestep true vs pred:",
           test_y_true[0, 0].item(), "vs", test_pred[0, 0, 0].item())
+
