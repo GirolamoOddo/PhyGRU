@@ -19,7 +19,7 @@ This design enables interpretable, physics-guided temporal propagation while mai
 Clone the repository and install dependencies using `pip`:
 
 ```bash
-git clone https://github.com/<your-username>/PhyGRU.git
+git clone https://github.com/GirolamoOddo/PhyGRU.git
 cd PhyGRU
 pip install -r requirements.txt
 ```
