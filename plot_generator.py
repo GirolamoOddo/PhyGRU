@@ -1048,6 +1048,191 @@ def compare_incremental_stability_phygru_vs_gru(
     }
 
 
+#############
+# DT STUDY
+
+def plot_dt_timeseries(
+    results_dir="results_npz",
+    fig_dir="figures",
+    dataset_name="Sys_1",
+    train_dts=(0.01, 0.9),
+    test_dts=(0.005, 0.01, 0.9),
+    dt_for_timeaxis=DT,
+    save_fig=True
+):
+    """
+    Plot time-series predictions from PhyGRU cross-evaluation .npz files.
+    Paper-consistent styling: vertical stacked subplots, same figsize and fonts used across the project.
+
+    Files expected (flexible):
+      {results_dir}/{dataset_name}_PhyGRU_modeldt{train_dt}_results.npz
+    Keys expected (flexible):
+      modeldt_{test_dt}_pred, modeldt_{test_dt}_true, modeldt_{test_dt}_mse, modeldt_{test_dt}_spearman
+    The finder tolerates several float string formats (e.g. '0.01', '0.010', '0.01' etc).
+    """
+
+    _ensure_dir(fig_dir)
+
+    # local helper: candidate string forms for floats
+    def _fmt_candidates(x):
+        return [str(x), f"{x:.2f}", f"{x:.3f}", f"{x:g}"]
+
+    # local helper: find npz for a given train_dt (tries multiple formats and scans folder)
+    def _find_npz_for_train_dt_local(results_dir, dataset_name, tr_dt):
+        candidates = _fmt_candidates(tr_dt)
+        for c in candidates:
+            fname = os.path.join(results_dir, f"{dataset_name}_PhyGRU_modeldt{c}_results.npz")
+            if os.path.exists(fname):
+                return np.load(fname, allow_pickle=True), fname
+        prefix = f"{dataset_name}_PhyGRU_modeldt"
+        if not os.path.isdir(results_dir):
+            raise FileNotFoundError(f"Results dir '{results_dir}' not found.")
+        files = [f for f in os.listdir(results_dir) if f.startswith(prefix) and f.endswith("_results.npz")]
+        for f in files:
+            core = f[len(prefix):-len("_results.npz")]
+            try:
+                val = float(core)
+                if abs(val - float(tr_dt)) < 1e-9:
+                    return np.load(os.path.join(results_dir, f), allow_pickle=True), os.path.join(results_dir, f)
+            except Exception:
+                for c in candidates:
+                    if c in core:
+                        return np.load(os.path.join(results_dir, f), allow_pickle=True), os.path.join(results_dir, f)
+        raise FileNotFoundError(f"No results .npz found for train_dt={tr_dt} in {results_dir}")
+
+    # local helper: find key for test_dt and suffix inside a npz file
+    def _find_key_for_test_dt_local(npzfile, te_dt, suffix):
+        candidates = _fmt_candidates(te_dt)
+        prefixes = ["modeldt_", "td_"]
+        for pref in prefixes:
+            for cand in candidates:
+                k = f"{pref}{cand}_{suffix}"
+                if k in npzfile.files:
+                    return k
+        # regex fallback: try parse numeric part
+        pat = re.compile(r"^(?:td_|modeldt_)(.+)_" + re.escape(suffix) + r"$")
+        for k in npzfile.files:
+            m = pat.match(k)
+            if m:
+                try:
+                    val = float(m.group(1))
+                    if abs(val - float(te_dt)) < 1e-9:
+                        return k
+                except Exception:
+                    continue
+        return None
+
+    # --------------------------
+    # Load requested train_dts
+    # --------------------------
+    loaded = {}
+    for tr in train_dts:
+        npz, path = _find_npz_for_train_dt_local(results_dir, dataset_name, tr)
+        loaded[tr] = {"npz": npz, "path": path}
+
+    # --------------------------
+    # Determine time axis from any available '*_true' key
+    # --------------------------
+    sample_npz = next(iter(loaded.values()))["npz"]
+    true_keys = [k for k in sample_npz.files if (k.startswith("td_") or k.startswith("modeldt_")) and k.endswith("_true")]
+    if len(true_keys) == 0:
+        raise RuntimeError("No '*_true' keys found in npz files; cannot determine time axis length.")
+    sample_true = sample_npz[true_keys[0]]
+    T = int(np.asarray(sample_true).ravel().shape[0])
+    time = np.arange(T) * float(dt_for_timeaxis)
+
+    # --------------------------
+    # Figure: vertical stack to match your other figures
+    # --------------------------
+    n = len(test_dts)
+    fig, axes = plt.subplots(n, 1, figsize=(13, 4.2 * n), sharex=True)
+    if n == 1:
+        axes = [axes]
+
+    line_styles = ["-", "--", "-.", ":"]
+    resume_table = []
+
+    for ax, te_dt in zip(axes, test_dts):
+        curves = []
+
+        # Ground truth (try to find the exact matching true key; fallback to first true)
+        gt_key = _find_key_for_test_dt_local(sample_npz, te_dt, "true")
+        if gt_key is None:
+            alt = [k for k in sample_npz.files if k.endswith("_true")]
+            if len(alt) == 0:
+                raise RuntimeError(f"No ground truth found for test dt {te_dt}")
+            gt = np.asarray(sample_npz[alt[0]]).ravel()
+            print(f"[plot_dt_timeseries] Warning: exact ground truth for dt={te_dt} not found; using {alt[0]}")
+        else:
+            gt = np.asarray(sample_npz[gt_key]).ravel()
+
+        ax.plot(time[:gt.size], gt, color=COLORS["GT"], linestyle="--", lw=2.2, label=r"Ground Truth")
+        curves.append(gt)
+
+        # overlay predictions from each trained checkpoint
+        for i, tr_dt in enumerate(train_dts):
+            npz = loaded[tr_dt]["npz"]
+            pred_key = _find_key_for_test_dt_local(npz, te_dt, "pred")
+            if pred_key is None:
+                print(f"[plot_dt_timeseries] Warning: no pred for test dt={te_dt} in train dt={tr_dt} (skipping)")
+                continue
+            pred = np.asarray(npz[pred_key]).ravel()
+            L = min(pred.size, time.size)
+
+            ax.plot(
+                time[:L], pred[:L],
+                color=COLORS["PhyGRU"],
+                linestyle=line_styles[i % len(line_styles)],
+                lw=1.8,
+                alpha=0.95,
+                label=rf"PhyGRU (train $\Delta t$={tr_dt:g})"
+            )
+            curves.append(pred[:L])
+
+            mse_key = _find_key_for_test_dt_local(npz, te_dt, "mse")
+            spk_key = _find_key_for_test_dt_local(npz, te_dt, "spearman")
+            mse_val = float(npz[mse_key]) if (mse_key is not None and mse_key in npz.files) else np.nan
+            spear_val = float(npz[spk_key]) if (spk_key is not None and spk_key in npz.files) else np.nan
+            resume_table.append({
+                "train_dt": tr_dt,
+                "test_dt": te_dt,
+                "mse": mse_val,
+                "spearman": spear_val,
+                "ckpt": loaded[tr_dt].get("path", None)
+            })
+
+        # axes styling consistent with your style
+        apply_smart_ylim(ax, curves)
+        ax.set_title(rf"Test $\Delta t$ = {te_dt}")
+        ax.set_ylabel(r"$x(t)$")
+        ax.set_facecolor("white")
+        ax.grid(True, alpha=0.3)
+
+        if ax is axes[0]:
+            ax.legend(loc="upper right")
+
+    axes[-1].set_xlabel(r"$t\,[\mathrm{s}]$")
+
+    plt.tight_layout()
+    _ensure_dir(fig_dir)
+    out_path = os.path.join(fig_dir, f"{dataset_name}_dt_timeseries_comparison.pdf")
+    if save_fig:
+        plt.savefig(out_path, bbox_inches="tight")
+        print(f"[plot_dt_timeseries] Saved figure to {out_path}")
+    plt.show()
+
+    # compact resume table printout (same style you used elsewhere)
+    print("\nCompact resume table (PhyGRU cross-eval):")
+    print(" train_dt | test_dt |    mse    | spearman | ckpt")
+    for r in resume_table:
+        print(f" {r['train_dt']:7g} | {r['test_dt']:6g} | {r['mse']:8.3e} | {r['spearman']:8.3f} | {r['ckpt']}")
+
+    return {
+        "loaded": loaded,
+        "time": time,
+        "resume_table": resume_table
+    }
+
 
 
 
@@ -1121,6 +1306,10 @@ compare_incremental_stability_phygru_vs_gru(
     gru_hidden=32,
     colors=None
 )
+
+
+plot_dt_timeseries(results_dir=".\TI_dt\results_npz", fig_dir="figures", dataset_name="Sys_1",
+                    train_dts=(0.01, 0.9), test_dts=(0.005, 0.01, 0.9), dt_for_timeaxis=0.01, save_fig=True)
 
 #################################################
 
