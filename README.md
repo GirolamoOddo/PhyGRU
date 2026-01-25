@@ -23,5 +23,5 @@ git clone https://github.com/<your-username>/PhyGRU.git
 cd PhyGRU
 pip install -r requirements.txt
 ```
-The file `PhyGRU_example.py` provides a ready-to-run example demonstrating how to use PhyGRU in a PyTorch environment. It shows how to initialize an hybrid GRU-PhyGRU-FNN model, define input sequences, perform forward passes, and inspect outputs.
+The file `PhyGRU_example.py` provides a ready-to-run example demonstrating how to use PhyGRU in a PyTorch environment. It shows how to initialize an hybrid PhyGRU-GRU-FNN layers model, define input sequences, perform forward passes, and inspect outputs.
 
