@@ -1,0 +1,10 @@
+# Required packages
+wheel
+setuptools
+torch==2.9.0+cpu
+numpy==2.0.2
+seaborn==0.13.2
+matplotlib==3.10.0
+
+# Python version (for reference)
+# Python 3.12.12
