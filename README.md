@@ -1,10 +1,10 @@
 
-# PhyGRU - A Physics-Biased Variant for Gated Recurrent Unit
+### PhyGRU - A Physics-Biased Variant for Gated Recurrent Unit
 
 
 ---
 
-## Overwiew
+#### Overwiew
 
 Modeling dynamical systems with partial physical knowledge and limited data is challenging. Purely data-driven recurrent networks can struggle to generalize, while simplified physical models often fail to capture the full system dynamics. PhyGRU addresses this by embedding an explicit physics-informed candidate state within a standard Gated Recurrent Unit architecture. 
 
@@ -14,7 +14,7 @@ This design enables interpretable, physics-guided temporal propagation while mai
 
 ---
 
-## Installation
+#### Installation
 
 Clone the repository and install dependencies using `pip`:
 
