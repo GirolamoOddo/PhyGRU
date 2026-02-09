@@ -366,7 +366,7 @@ def run_update_gate_analysis_TI(
     axes[1].plot(time, candidate_phys, label="Physics Candidate", color=COLORS["PhyGRU"])
     for i, cl in enumerate(candidate_latents):
         axes[1].plot(time, cl, label=f"Latent {i+1} Candidate", color=plt.cm.Set2(i % 8))
-    axes[1].set_ylabel(r"$c(t)$")
+    axes[1].set_ylabel(r"$\tilde{\mathbf{h}}$")
     #axes[1].set_title(rf"\textbf{{{dataset_name}}} --- Candidates (physics + latents)")
     axes[1].legend()
     axes[1].grid(True, alpha=0.3)
@@ -1333,4 +1333,5 @@ plot_dt_timeseries(results_dir=".\TI_dt\results_npz", fig_dir="figures", dataset
 # shutil.make_archive("figures", 'zip', folder_to_zip)
 
 # files.download(zip_name)
+
 
