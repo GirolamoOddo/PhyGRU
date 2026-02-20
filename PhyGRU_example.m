@@ -1,4 +1,4 @@
-% phygru_hybrid_example.m, run in MATLAB R2021b+ with Deep Learning Toolbox
+% run in MATLAB R2021b+ with Deep Learning Toolbox
 clear; clc; rng(0);
 
 useGPU = false;
