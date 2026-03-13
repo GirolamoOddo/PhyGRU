@@ -1,6 +1,6 @@
 
 
-![Alt text](figures/1000050674.jpg) 
+![Images](figures/1000050674.jpg) 
 
 ### PhyGRU - A Physics-Biased Variant for Gated Recurrent Unit
 **Companion Preprint:** Available at https://doi.org/10.5281/zenodo.18911329
