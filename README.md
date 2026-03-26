@@ -29,8 +29,14 @@ pip install -r requirements.txt
 ```
 The file `PhyGRU_example.py` provides a ready-to-run example demonstrating how to use PhyGRU in a PyTorch environment. It shows how to initialize an hybrid PhyGRU-GRU-FNN layers model, define input sequences, perform forward passes, and inspect outputs. A MATLAB R2021b+ with Deep Learning Toolbox version is also provided. The data in the examples are randomly generated solely to illustrate the workflow; users can customize the data and model structure for their specific applications.
 
+---
 
 #### Application Example
 
-**Vehicle Dynamics Application Example** (PhyGRU_applications/PhyGRU_VD_Application) 
+##### Vehicle Dynamics States Prediction [View Report](PhyGRU_applications/PhyGRU_VD_Application.pdf)
+Compared GRU and PhyGRU (with bicycle 3-DOF model prior) to predict vehicle accelerations and yaw rate from controls using synthetic noisy 7-DOF model data. Both trained to similar validation MSE, PhyGRU achieves a lower MSE and physically consistent predictions. Evaluation include a qualitative reconstructed-trajectory comparison.  
+
+Vehicle trajectories from test set; blue Ground Truth, green PhyGRU, yellow GRU.
+
+![Images](PhyGRU_applications/PhyGRU_VD.png) 
 
