@@ -34,7 +34,7 @@ The file `PhyGRU_example.py` provides a ready-to-run example demonstrating how t
 #### Application Example
 
 ##### Vehicle Dynamics States Prediction [View Report](PhyGRU_applications/PhyGRU_VD_Application.pdf)
-Compared GRU and PhyGRU (with bicycle 3-DOF model prior) to predict vehicle accelerations and yaw rate from controls using synthetic noisy 7-DOF model data. Both trained to similar validation MSE, PhyGRU achieves a lower MSE and physically consistent predictions. Evaluation include a qualitative reconstructed-trajectory comparison.  
+Compared GRU and PhyGRU (with bicycle 3-DOF model prior) to predict vehicle accelerations and yaw rate from controls using synthetic noisy 7-DOF model data. Both trained to similar validation MSE, PhyGRU achieves a lower MSE and better consistency over long simulations. Evaluation include a qualitative reconstructed-trajectory comparison.  
 
 Vehicle trajectories from test set; blue Ground Truth, green PhyGRU, yellow GRU.
 
