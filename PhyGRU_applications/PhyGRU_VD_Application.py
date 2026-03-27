@@ -301,7 +301,7 @@ class BicyclePrior(nn.Module):
         s_dot = torch.stack([vx_dot, vy_dot, r_dot], dim=1)
         return s_dot, y_phys
 
-class PhyGRUCell(nn.Module):
+class PhyGRUResidualCell(nn.Module):
     def __init__(self, physics_prior, input_dim=3, latent_dim=4):
         super().__init__()
         self.prior = physics_prior
@@ -368,11 +368,11 @@ class PhyGRUCell(nn.Module):
 
         return next_state, y
 
-class PhyGRU(nn.Module):
+class PhyGRUResidual(nn.Module):
     def __init__(self, y_mean, y_std, input_dim=3, latent_dim=4, init_state=(15.0, 0.0, 0.0)):
         super().__init__()
         prior = BicyclePrior(y_mean=y_mean, y_std=y_std)
-        self.cell = PhyGRUCell(prior, input_dim=input_dim, latent_dim=latent_dim)
+        self.cell = PhyGRUResidualCell(prior, input_dim=input_dim, latent_dim=latent_dim)
         self.state_dim = 3
         self.latent_dim = latent_dim
         self.register_buffer("init_state", torch.tensor(init_state, dtype=torch.float32))
@@ -388,6 +388,100 @@ class PhyGRU(nn.Module):
         for t in range(Tt):
             state, y = self.cell(state, u_seq[:, t])
             ys.append(y)
+        return torch.stack(ys, dim=1)
+
+
+class BicyclePhysicsLaw(nn.Module):
+    def __init__(self, y_mean, y_std):
+        super().__init__()
+        self.prior = BicyclePrior(y_mean, y_std)
+
+    def forward(self, state, u):
+        # state = [vx, vy, r]
+        s_dot, _ = self.prior(state, u)
+        return s_dot
+
+class PhyGRUBaseCell(nn.Module):
+    def __init__(self, state_dim, input_dim, physics_law, latent_dim=0):
+        super().__init__()
+        self.state_dim = state_dim
+        self.latent_dim = latent_dim
+        self.physics_law = physics_law
+
+        total_state = state_dim + latent_dim
+
+        if latent_dim > 0:
+            self.latent_dyn = nn.Linear(total_state + input_dim, latent_dim)
+        else:
+            self.latent_dyn = None
+
+        self.z_gate = nn.Sequential(
+            nn.Linear(total_state + input_dim, total_state),
+            nn.Sigmoid()
+        )
+
+    def forward(self, state, u):
+        # --- physics ---
+        phys_dot = self.physics_law(state[:, :self.state_dim], u)
+        phys_next = state[:, :self.state_dim] + dt * phys_dot
+
+        # --- latent ---
+        if self.latent_dim > 0:
+            latent = state[:, self.state_dim:]
+            latent_dot = self.latent_dyn(torch.cat([state, u], dim=1))
+            latent_next = latent + dt * latent_dot
+            candidate = torch.cat([phys_next, latent_next], dim=1)
+        else:
+            candidate = phys_next
+
+        # --- GRU update ---
+        z = self.z_gate(torch.cat([state, u], dim=1))
+        next_state = z * candidate + (1 - z) * state
+
+        return next_state
+
+
+class PhyGRUBase(nn.Module):
+    def __init__(self, y_mean, y_std, state_dim=3, input_dim=3, latent_dim=4,
+                 init_state=(15.0, 0.0, 0.0)):
+        super().__init__()
+
+        self.physics_law = BicyclePhysicsLaw(y_mean, y_std)
+
+        self.cell = PhyGRUBaseCell(
+            state_dim=state_dim,
+            input_dim=input_dim,
+            physics_law=self.physics_law,
+            latent_dim=latent_dim
+        )
+
+        self.state_dim = state_dim
+        self.latent_dim = latent_dim
+
+        self.register_buffer(
+            "init_state",
+            torch.tensor(init_state, dtype=torch.float32)
+        )
+
+        self.output_prior = BicyclePrior(y_mean, y_std)
+
+    def forward(self, u_seq):
+        B, Tt, _ = u_seq.shape
+
+        state = self.init_state.unsqueeze(0).repeat(B, 1).to(u_seq.device, u_seq.dtype)
+
+        if self.latent_dim > 0:
+            latent0 = torch.zeros(B, self.latent_dim, device=u_seq.device, dtype=u_seq.dtype)
+            state = torch.cat([state, latent0], dim=1)
+
+        ys = []
+        for t in range(Tt):
+            state = self.cell(state, u_seq[:, t])
+
+
+            _, y_phys = self.output_prior(state[:, :self.state_dim], u_seq[:, t])
+            ys.append(y_phys)
+
         return torch.stack(ys, dim=1)
 
 def train_model(model, U_train, Y_train, U_val, Y_val, epochs=100, lr=1e-3, batch_size=8, verbose=True):
@@ -468,7 +562,7 @@ def plot_sample(y_true, y_pred, title=""):
     sns.despine(fig=fig)
     plt.show()
 
-def plot_gt_gru_phygru(y_true, y_gru, y_phy, title="Ground Truth vs GRU vs PhyGRU"):
+def plot_gt_all_models(y_true, y_gru, y_phy_base, y_phy_resid, title="Ground Truth vs GRU vs PhyGRU Base vs PhyGRU Residual"):
     labels = ["ax", "ay", "yaw_rate"]
     t = np.arange(y_true.shape[0]) * dt
 
@@ -476,13 +570,15 @@ def plot_gt_gru_phygru(y_true, y_gru, y_phy, title="Ground Truth vs GRU vs PhyGR
     for i, ax in enumerate(axes):
         ax.plot(t, y_true[:, i], label="Ground Truth", lw=2.2)
         ax.plot(t, y_gru[:, i], label="GRU", lw=2.0)
-        ax.plot(t, y_phy[:, i], label="PhyGRU", lw=2.0)
+        ax.plot(t, y_phy_base[:, i], label="PhyGRU Base", lw=2.0)
+        ax.plot(t, y_phy_resid[:, i], label="PhyGRU Residual", lw=2.0)
         ax.set_ylabel(labels[i])
         ax.grid(True, alpha=0.35)
         if i == 0:
             ax.set_title(title)
         if i == 2:
             ax.set_xlabel("time [s]")
+    axes[0].legend(loc="best")
     sns.despine(fig=fig)
     plt.show()
 
@@ -521,14 +617,15 @@ def _add_gradient_path(ax, x, y, base_color, label=None, lw=2.5, alpha_min=0.15,
 
     return Line2D([0], [0], color=base_color, lw=lw, label=label)
 
-def plot_xy_and_controls(y_gt, y_gru, y_phy, controls, title="XY map and control signals"):
+def plot_xy_and_controls_all(y_gt, y_gru, y_phy_base, y_phy_resid, controls, title="XY map and control signals"):
     pose_gt = reconstruct_pose_from_outputs(y_gt)
     pose_gru = reconstruct_pose_from_outputs(y_gru)
-    pose_phy = reconstruct_pose_from_outputs(y_phy)
+    pose_base = reconstruct_pose_from_outputs(y_phy_base)
+    pose_resid = reconstruct_pose_from_outputs(y_phy_resid)
 
     t = np.arange(controls.shape[0]) * dt
 
-    fig = plt.figure(figsize=(13, 11))
+    fig = plt.figure(figsize=(13, 12))
     gs = fig.add_gridspec(4, 1, height_ratios=[2.2, 1.0, 1.0, 1.0], hspace=0.28)
 
     ax_xy = fig.add_subplot(gs[0])
@@ -536,16 +633,18 @@ def plot_xy_and_controls(y_gt, y_gru, y_phy, controls, title="XY map and control
     ax_throttle = fig.add_subplot(gs[2], sharex=ax_steer)
     ax_brake = fig.add_subplot(gs[3], sharex=ax_steer)
 
-    palette = sns.color_palette("colorblind", 3)
-    c_gt, c_gru, c_phy = palette[0], palette[1], palette[2]
+    palette = sns.color_palette("colorblind", 4)
+    c_gt, c_gru, c_base, c_resid = palette[0], palette[1], palette[2], palette[3]
 
-    h1 = _add_gradient_path(ax_xy, pose_gt[:, 0], pose_gt[:, 1], c_gt, label="Ground Truth")
-    h2 = _add_gradient_path(ax_xy, pose_gru[:, 0], pose_gru[:, 1], c_gru, label="GRU")
-    h3 = _add_gradient_path(ax_xy, pose_phy[:, 0], pose_phy[:, 1], c_phy, label="PhyGRU")
+    _add_gradient_path(ax_xy, pose_gt[:, 0], pose_gt[:, 1], c_gt, label="Ground Truth")
+    _add_gradient_path(ax_xy, pose_gru[:, 0], pose_gru[:, 1], c_gru, label="GRU")
+    _add_gradient_path(ax_xy, pose_base[:, 0], pose_base[:, 1], c_base, label="PhyGRU Base")
+    _add_gradient_path(ax_xy, pose_resid[:, 0], pose_resid[:, 1], c_resid, label="PhyGRU Residual")
 
     ax_xy.set_title(title)
     ax_xy.grid(True, alpha=0.35)
     ax_xy.axis("equal")
+    ax_xy.legend(loc="best")
 
     ax_steer.plot(t, controls[:, 0], color=palette[0], lw=1.8)
     ax_steer.set_ylabel("steering")
@@ -563,11 +662,11 @@ def plot_xy_and_controls(y_gt, y_gru, y_phy, controls, title="XY map and control
     sns.despine(fig=fig)
     plt.show()
 
-def plot_trajectories_grid(y_gt_all, y_gru_all, y_phy_all, nrows=6, ncols=6):
+def plot_trajectories_grid_all(y_gt_all, y_gru_all, y_phy_base_all, y_phy_resid_all, nrows=6, ncols=6):
     fig, axes = plt.subplots(nrows, ncols, figsize=(14, 14))
 
-    palette = sns.color_palette("colorblind", 3)
-    c_gt, c_gru, c_phy = palette[0], palette[1], palette[2]
+    palette = sns.color_palette("colorblind", 4)
+    c_gt, c_gru, c_base, c_resid = palette[0], palette[1], palette[2], palette[3]
 
     for i, ax in enumerate(axes.flat):
         if i >= y_gt_all.shape[0]:
@@ -576,14 +675,16 @@ def plot_trajectories_grid(y_gt_all, y_gru_all, y_phy_all, nrows=6, ncols=6):
 
         pose_gt = reconstruct_pose_from_outputs(y_gt_all[i])
         pose_gru = reconstruct_pose_from_outputs(y_gru_all[i])
-        pose_phy = reconstruct_pose_from_outputs(y_phy_all[i])
+        pose_base = reconstruct_pose_from_outputs(y_phy_base_all[i])
+        pose_resid = reconstruct_pose_from_outputs(y_phy_resid_all[i])
 
-        ax.plot(pose_gt[:, 0],  pose_gt[:, 1],  color=c_gt,  lw=1.2)
-        ax.plot(pose_gru[:, 0], pose_gru[:, 1], color=c_gru, lw=1.0)
-        ax.plot(pose_phy[:, 0], pose_phy[:, 1], color=c_phy, lw=1.0)
+        ax.plot(pose_gt[:, 0],     pose_gt[:, 1],     color=c_gt,     lw=1.2)
+        ax.plot(pose_gru[:, 0],    pose_gru[:, 1],    color=c_gru,    lw=1.0)
+        ax.plot(pose_base[:, 0],   pose_base[:, 1],   color=c_base,   lw=1.0)
+        ax.plot(pose_resid[:, 0],  pose_resid[:, 1],  color=c_resid,  lw=1.0)
 
-        x_all = np.concatenate([pose_gt[:, 0], pose_gru[:, 0], pose_phy[:, 0]])
-        y_all = np.concatenate([pose_gt[:, 1], pose_gru[:, 1], pose_phy[:, 1]])
+        x_all = np.concatenate([pose_gt[:, 0], pose_gru[:, 0], pose_base[:, 0], pose_resid[:, 0]])
+        y_all = np.concatenate([pose_gt[:, 1], pose_gru[:, 1], pose_base[:, 1], pose_resid[:, 1]])
 
         x_mid = 0.5 * (x_all.min() + x_all.max())
         y_mid = 0.5 * (y_all.min() + y_all.max())
@@ -616,6 +717,9 @@ if __name__ == "__main__":
 
     Y_train_n, Y_val_n, Y_test_n, Y_mean, Y_std = standardize(Y_train, Y_val, Y_test)
 
+    y_mean_np = Y_mean.squeeze(0).squeeze(0).numpy()
+    y_std_np  = Y_std.squeeze(0).squeeze(0).numpy()
+
     print("\nTraining baseline GRU...")
     gru = GRUModel(INPUT_DIM, hidden_dim=64, output_dim=OUTPUT_DIM)
     print_learnables(gru, "GRU")
@@ -624,66 +728,101 @@ if __name__ == "__main__":
         epochs=120, lr=1e-3, batch_size=8, verbose=True
     )
 
-    print("\nTraining PhyGRU (3 residual branches)...")
-    phygru = PhyGRU(
-        y_mean=Y_mean.squeeze(0).squeeze(0).numpy(),
-        y_std=Y_std.squeeze(0).squeeze(0).numpy(),
+    print("\nTraining PhyGRU base (bicycle prior, no residual branches)...")
+    phygru_base = PhyGRUBase(
+        y_mean=y_mean_np,
+        y_std=y_std_np,
         input_dim=INPUT_DIM,
         latent_dim=4,
         init_state=(15.0, 0.0, 0.0)
     )
-    print_learnables(phygru, "PhyGRU")
-    phygru, phy_hist, phy_best = train_model(
-        phygru, U_train, Y_train_n, U_val, Y_val_n,
+    print_learnables(phygru_base, "PhyGRU Base")
+    phygru_base, base_hist, base_best = train_model(
+        phygru_base, U_train, Y_train_n, U_val, Y_val_n,
+        epochs=10, lr=1e-3, batch_size=8, verbose=True
+    )
+
+    print("\nTraining PhyGRU residual (bicycle prior + residual branches)...")
+    phygru_resid = PhyGRUResidual(
+        y_mean=y_mean_np,
+        y_std=y_std_np,
+        input_dim=INPUT_DIM,
+        latent_dim=4,
+        init_state=(15.0, 0.0, 0.0)
+    )
+    print_learnables(phygru_resid, "PhyGRU Residual")
+    phygru_resid, resid_hist, resid_best = train_model(
+        phygru_resid, U_train, Y_train_n, U_val, Y_val_n,
         epochs=10, lr=1e-3, batch_size=8, verbose=True
     )
 
     gru_pred_n, gru_mse_n, gru_perch_n = evaluate(gru, U_test, Y_test_n)
-    phy_pred_n, phy_mse_n, phy_perch_n = evaluate(phygru, U_test, Y_test_n)
+    base_pred_n, base_mse_n, base_perch_n = evaluate(phygru_base, U_test, Y_test_n)
+    resid_pred_n, resid_mse_n, resid_perch_n = evaluate(phygru_resid, U_test, Y_test_n)
 
-    gru_pred = unstandardize(gru_pred_n, Y_mean, Y_std)
-    phy_pred = unstandardize(phy_pred_n, Y_mean, Y_std)
+    gru_pred   = unstandardize(gru_pred_n, Y_mean, Y_std)
+    base_pred  = unstandardize(base_pred_n, Y_mean, Y_std)
+    resid_pred = unstandardize(resid_pred_n, Y_mean, Y_std)
+
     gru_mse = ((gru_pred - Y_test) ** 2).mean().item()
-    phy_mse = ((phy_pred - Y_test) ** 2).mean().item()
+    base_mse = ((base_pred - Y_test) ** 2).mean().item()
+    resid_mse = ((resid_pred - Y_test) ** 2).mean().item()
+
     gru_perch = ((gru_pred - Y_test) ** 2).mean(dim=(0, 1)).numpy()
-    phy_perch = ((phy_pred - Y_test) ** 2).mean(dim=(0, 1)).numpy()
+    base_perch = ((base_pred - Y_test) ** 2).mean(dim=(0, 1)).numpy()
+    resid_perch = ((resid_pred - Y_test) ** 2).mean(dim=(0, 1)).numpy()
 
     print("\n==============================")
     print("TEST RESULTS")
     print("==============================")
-    print(f"GRU    | MSE = {gru_mse:.4e} | per-channel = {gru_perch}")
-    print(f"PhyGRU | MSE = {phy_mse:.4e} | per-channel = {phy_perch}")
+    print(f"GRU            | MSE = {gru_mse:.4e} | per-channel = {gru_perch}")
+    print(f"PhyGRU Base    | MSE = {base_mse:.4e} | per-channel = {base_perch}")
+    print(f"PhyGRU Residual| MSE = {resid_mse:.4e} | per-channel = {resid_perch}")
 
     gru_inf = inference_time(gru, U_test.to(device)) * 1000
-    phy_inf = inference_time(phygru, U_test.to(device)) * 1000
+    base_inf = inference_time(phygru_base, U_test.to(device)) * 1000
+    resid_inf = inference_time(phygru_resid, U_test.to(device)) * 1000
+
     print(f"\nInference per sample-step:")
-    print(f"GRU    : {gru_inf:.4f} ms")
-    print(f"PhyGRU : {phy_inf:.4f} ms")
+    print(f"GRU            : {gru_inf:.4f} ms")
+    print(f"PhyGRU Base    : {base_inf:.4f} ms")
+    print(f"PhyGRU Residual: {resid_inf:.4f} ms")
 
     sample_id = 0
 
-    plot_gt_gru_phygru(
+    plot_gt_all_models(
         Y_test[sample_id].numpy(),
         gru_pred[sample_id].numpy(),
-        phy_pred[sample_id].numpy(),
+        base_pred[sample_id].numpy(),
+        resid_pred[sample_id].numpy(),
         title=" "
     )
 
     y_gt     = Y_test_clean[sample_id].numpy()
     y_gru    = gru_pred[sample_id].numpy()
-    y_phy    = phy_pred[sample_id].numpy()
+    y_base   = base_pred[sample_id].numpy()
+    y_resid  = resid_pred[sample_id].numpy()
     controls = U_test[sample_id].numpy()
 
-    plot_xy_and_controls(
+    plot_xy_and_controls_all(
         y_gt=y_gt,
         y_gru=y_gru,
-        y_phy=y_phy,
+        y_phy_base=y_base,
+        y_phy_resid=y_resid,
         controls=controls,
         title=" "
     )
 
-    plot_trajectories_grid(
+    plot_trajectories_grid_all(
         y_gt_all=Y_test_clean.numpy(),
         y_gru_all=gru_pred.numpy(),
-        y_phy_all=phy_pred.numpy()
+        y_phy_base_all=base_pred.numpy(),
+        y_phy_resid_all=resid_pred.numpy()
     )
+
+
+
+
+
+
+
