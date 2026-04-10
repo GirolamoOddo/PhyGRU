@@ -28,6 +28,9 @@ cd PhyGRU
 pip install -r requirements.txt
 ```
 The file `PhyGRU_user_examples.py` provides a ready-to-run example demonstrating how to use PhyGRU in a PyTorch environment. It shows how to initialize a minimal PhyGRU model, using the different API setup available.
+The file presents the results obtained, showing PhyGRU in various usage modes, including: No Prior, No Latent, Linear Latent*, MLP Latent, Latent at Gate Level* and Latent as Residual Compensation.  
+This is just a starting point for developing more complex models with mixed layers, including PhyGRU in the pipeline.  
+*(as presented in the preprint)
 
 ---
 
