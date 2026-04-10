@@ -27,7 +27,7 @@ git clone https://github.com/GirolamoOddo/PhyGRU.git
 cd PhyGRU
 pip install -r requirements.txt
 ```
-The file `PhyGRU_example.py` provides a ready-to-run example demonstrating how to use PhyGRU in a PyTorch environment. It shows how to initialize an hybrid PhyGRU-GRU-FNN layers model, define input sequences, perform forward passes, and inspect outputs. A MATLAB R2021b+ with Deep Learning Toolbox version is also provided. The data in the examples are randomly generated solely to illustrate the workflow; users can customize the data and model structure for their specific applications.
+The file `PhyGRU_user_examples.py` provides a ready-to-run example demonstrating how to use PhyGRU in a PyTorch environment. It shows how to initialize a minimal PhyGRU model, using the different API setup available.
 
 ---
 
