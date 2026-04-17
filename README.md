@@ -5,7 +5,7 @@
 ### PhyGRU - A Physics-Biased Variant for Gated Recurrent Unit
 **Companion Preprint:** Available at https://doi.org/10.5281/zenodo.18911329
 
-### Appendix and Variants:  
+#### Appendix and Variants:  
 
 - Residual Latent Injection: https://doi.org/10.5281/zenodo.19632174
 
