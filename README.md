@@ -38,12 +38,4 @@ This is just a starting point for developing more complex models with mixed laye
 
 ---
 
-#### Application Example
-
-##### Vehicle Dynamics States Prediction [View Report](PhyGRU_applications/PhyGRU_VD_Application.pdf)
-Compared GRU and PhyGRU (with bicycle 3-DOF model prior) to predict vehicle accelerations and yaw rate from controls using synthetic noisy 7-DOF model data. Both trained to similar validation MSE, PhyGRU_res achieves a lower MSE and better consistency over long test simulations. Evaluation include a qualitative reconstructed-trajectory comparison.  
-
-Vehicle trajectories from test set; blue Ground Truth, green PhyGRU_base, orange PhyGRU_residual, yellow GRU.
-
-![Images](PhyGRU_applications/PhyGRU_VD.png) 
 
