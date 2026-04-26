@@ -38,5 +38,6 @@ This is just a starting point for developing more complex models with mixed laye
 
 ---
 
-<img width="1089" height="590" alt="res_phyGRUvsGRUvsPHY3" src="https://github.com/user-attachments/assets/c89fcf58-eebd-4d50-8ac3-0ae22f5fcf44" />
-From: Comparison of Physics-Based, GRU and PhyGRU Models for Vehicle Lateral Acceleration Prediction
+<img width="1089" height="590" alt="res_phyGRUvsGRUvsPHY3" src="https://github.com/user-attachments/assets/c89fcf58-eebd-4d50-8ac3-0ae22f5fcf44" />  
+  
+From: `applications/'Comparison of Physics-Based, GRU and PhyGRU Models for Vehicle Lateral Acceleration Prediction.pdf'`
